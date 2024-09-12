@@ -309,6 +309,9 @@ class WebRequest(object):
         # otherwise "no active exception to reraise"
         raise pycompat.reraise(type(exception), exception, sys.exc_info()[2])
 
+    def _is_cors_preflight(self, endpoint):
+        return request.httprequest.method == 'OPTIONS' and endpoint and endpoint.routing.get('cors')
+
     def _call_function(self, *args, **kwargs):
         request = self
         if self.endpoint.routing['type'] != self._request_type:
@@ -765,11 +768,14 @@ class HttpRequest(WebRequest):
             return e
 
     def dispatch(self):
-        if request.httprequest.method == 'OPTIONS' and request.endpoint and request.endpoint.routing.get('cors'):
+        if self._is_cors_preflight(request.endpoint):
             headers = {
                 'Access-Control-Max-Age': 60 * 60 * 24,
-                'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept'
+                'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization'
             }
+            cors = request.endpoint.routing.get('cors', False)
+            if cors:
+                headers['Access-Control-Allow-Origin'] = cors
             return Response(status=200, headers=headers)
 
         if request.httprequest.method not in ('GET', 'HEAD', 'OPTIONS', 'TRACE') \
@@ -1233,12 +1239,7 @@ class Response(werkzeug.wrappers.Response):
         # Support for Cross-Origin Resource Sharing
         if request.endpoint and 'cors' in request.endpoint.routing:
             self.headers.set('Access-Control-Allow-Origin', request.endpoint.routing['cors'])
-            methods = 'GET, POST'
-            if request.endpoint.routing['type'] == 'json':
-                methods = 'POST'
-            elif request.endpoint.routing.get('methods'):
-                methods = ', '.join(request.endpoint.routing['methods'])
-            self.headers.set('Access-Control-Allow-Methods', methods)
+            self.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
 
     @property
     def is_qweb(self):
